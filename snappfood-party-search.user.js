@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.9.2
+// @version      1.10.0
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -238,21 +238,16 @@
   async function collectAllViaEcoApi() {
     const baseUrl = ecoApiUrl();
     if (!baseUrl) return false;
+    // Search across every Eco vendor type, regardless of the tab encoded in
+    // the shared page URL or the request initially made by the website.
+    baseUrl.searchParams.delete('superType');
     const requestedPageSize = 500;
     const first = await fetchEcoPage(baseUrl, 0, requestedPageSize);
     const firstProducts = first.finalResult || [];
     const total = Number(first.count ?? first.total) || firstProducts.length;
-    const effectivePageSize = firstProducts.length;
-    if (!effectivePageSize) return false;
-    const pageCount = Math.ceil(total / effectivePageSize);
-    const remainingPages = await Promise.all(
-      Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => (
-        fetchEcoPage(baseUrl, index + 1, requestedPageSize)
-      )),
-    );
-    const rawProducts = [first, ...remainingPages].flatMap((page) => page.finalResult || []);
+    if (!firstProducts.length) return false;
     state.products.clear();
-    rawProducts.forEach((raw) => {
+    firstProducts.forEach((raw) => {
       const product = ecoProduct(raw, state.products.size);
       state.products.set(product.id, product);
     });
