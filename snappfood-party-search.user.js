@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.9.0
+// @version      1.9.1
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -151,14 +151,34 @@
     if (observed) return new URL(observed);
 
     const url = new URL('https://snappfood.ir/search/api/v1/eco-food/product-list');
+    const pageParams = new URLSearchParams(location.search);
     const cookies = Object.fromEntries(document.cookie.split('; ').map((item) => {
       const separator = item.indexOf('=');
       return separator < 0 ? [item, ''] : [item.slice(0, separator), item.slice(separator + 1)];
     }));
-    if (cookies.lat) url.searchParams.set('lat', cookies.lat);
-    if (cookies.long) url.searchParams.set('long', cookies.long);
-    const superType = new URLSearchParams(location.search).get('superType');
-    if (superType) url.searchParams.set('superType', JSON.stringify([Number(superType)]));
+
+    // Shared Eco/carousel links already contain the location and active filters.
+    // Prefer those values over cookies so the same link works after a fresh load.
+    for (const key of ['lat', 'long', 'filters', 'mode', 'updateChannels']) {
+      const value = pageParams.get(key);
+      if (value) url.searchParams.set(key, value);
+    }
+    if (!url.searchParams.has('lat') && cookies.lat) url.searchParams.set('lat', cookies.lat);
+    if (!url.searchParams.has('long') && cookies.long) url.searchParams.set('long', cookies.long);
+
+    const addressId = pageParams.get('addressId')
+      || cookies.addressId
+      || cookies.selectedAddressId;
+    if (addressId) url.searchParams.set('addressId', addressId);
+
+    const superType = pageParams.get('superType');
+    if (superType) {
+      const parsedSuperType = Number(superType);
+      url.searchParams.set(
+        'superType',
+        Number.isFinite(parsedSuperType) ? JSON.stringify([parsedSuperType]) : superType,
+      );
+    }
     return url;
   }
 
