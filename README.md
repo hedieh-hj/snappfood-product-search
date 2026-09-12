@@ -45,12 +45,12 @@
 
 فایل اصلی اسکریپت را از لینک زیر باز کنید:
 
-### [مشاهدهٔ فایل snappfood-party-search.user.js](https://raw.githubusercontent.com/hedieh-hj/snappfood-product-search/main/snappfood-party-search.user.js)
+### [مشاهدهٔ فایل snappfood-party-search.user.js در GitHub](./snappfood-party-search.user.js)
 
 بعد از بازشدن فایل:
 
-1. تمام محتوای فایل را با `Ctrl + A` انتخاب کنید.
-2. با `Ctrl + C` آن را کپی کنید.
+1. در صفحهٔ فایل GitHub روی دکمهٔ **Copy raw file** بزنید؛ یا ابتدا **Raw** را باز کنید.
+2. اگر حالت Raw را باز کردید، تمام محتوا را با `Ctrl + A` و سپس `Ctrl + C` کپی کنید.
 
 مطمئن شوید کد را از اولین خط `// ==UserScript==` تا آخرین خط فایل کامل کپی کرده‌اید.
 
