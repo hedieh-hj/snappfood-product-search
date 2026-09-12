@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.8.4
+// @version      1.8.5
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -456,13 +456,15 @@
     }
 
     list.innerHTML = products.map((product) => {
-      const tag = product.url ? 'a' : 'article';
-      const linkAttributes = product.url
+      const unavailable = product.stock === 0;
+      const clickable = Boolean(product.url) && !unavailable;
+      const tag = clickable ? 'a' : 'article';
+      const linkAttributes = clickable
         ? `href="${escapeHtml(product.url)}" title="بازکردن صفحه سفارش محصول"`
-        : 'aria-disabled="true" title="لینک محصول در پاسخ اسنپ‌فود موجود نیست"';
+        : `aria-disabled="true" title="${unavailable ? 'این محصول ناموجود است' : 'لینک محصول در پاسخ اسنپ‌فود موجود نیست'}"`;
       return `
-      <${tag} class="sfps-card${product.url ? '' : ' sfps-card-disabled'}" ${linkAttributes}>
-        <strong>${escapeHtml(product.title)}</strong>
+      <${tag} class="sfps-card${clickable ? '' : ' sfps-card-disabled'}${unavailable ? ' sfps-card-unavailable' : ''}" ${linkAttributes}>
+        <span class="sfps-card-title"><strong>${escapeHtml(product.title)}</strong>${unavailable ? '<b class="sfps-unavailable-badge">ناموجود</b>' : ''}</span>
         ${product.vendor ? `<span class="sfps-vendor">${escapeHtml(product.vendor)}</span>` : ''}
         <span class="sfps-meta">
           ${product.discount ? `<b>${escapeHtml(product.discount)} تخفیف</b>` : ''}
@@ -471,7 +473,7 @@
         </span>
         <span class="sfps-card-footer">
           <span class="sfps-delivery">پیک: ${product.delivery ? `${escapeHtml(product.delivery)}${product.delivery === 'رایگان' ? '' : ' تومان'}` : 'نامشخص'}</span>
-          <span class="sfps-card-link">${product.url ? 'مشاهده و سفارش ←' : 'لینک محصول موجود نیست'}</span>
+          <span class="sfps-card-link">${unavailable ? 'اتمام موجودی' : (product.url ? 'مشاهده و سفارش ←' : 'لینک محصول موجود نیست')}</span>
         </span>
       </${tag}>`;
     }).join('');
@@ -567,6 +569,8 @@
     .sfps-card { display: grid; gap: 6px; margin: 8px 0; padding: 13px 14px; border: 1px solid #ececf0; border-radius: 13px; background: #fff; color: inherit; box-shadow: 0 2px 8px #0000000a; cursor: pointer; text-decoration: none; }
     .sfps-card:hover, .sfps-card:focus { border-color: #ff00a666; transform: translateY(-1px); outline: none; }
     .sfps-card strong { font-size: 14px; line-height: 1.6; }
+    .sfps-card-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .sfps-unavailable-badge { flex: 0 0 auto; padding: 3px 8px; border-radius: 999px; background: #eeeeef; color: #777; font-size: 10px; }
     .sfps-vendor { color: #666; font-size: 12px; }
     .sfps-meta { display: flex; gap: 11px; align-items: center; font-size: 12px; color: #555; }
     .sfps-meta b { color: #ff00a6; }
@@ -575,6 +579,8 @@
     .sfps-card-link { color: #d6008c; font-weight: 700; }
     .sfps-card-disabled { cursor: default; opacity: .72; }
     .sfps-card-disabled .sfps-card-link { color: #888; }
+    .sfps-card-unavailable { background: #f1f1f3; border-color: #dedee2; box-shadow: none; filter: grayscale(.35); }
+    .sfps-card-unavailable:hover, .sfps-card-unavailable:focus { border-color: #dedee2; transform: none; }
     .sfps-empty { text-align: center; color: #777; padding: 55px 15px; line-height: 2; }
     #sfps-panel footer { padding: 8px; text-align: center; color: #888; background: #fff; font-size: 11px; border-top: 1px solid #eee; display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap; }
     #sfps-panel footer a { color: #d6008c; text-decoration: none; font-weight: 700; }
