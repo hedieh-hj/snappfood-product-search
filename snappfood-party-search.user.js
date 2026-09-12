@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.8.8
+// @version      1.8.9
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -504,7 +504,6 @@
           ${product.rating ? `<span>★ ${escapeHtml(product.rating)}</span>` : ''}
         </span>
         <span class="sfps-card-footer">
-          <span class="sfps-delivery">پیک: ${product.delivery ? `${escapeHtml(product.delivery)}${product.delivery === 'رایگان' ? '' : ' تومان'}` : 'نامشخص'}</span>
           <span class="sfps-card-link">${unavailable ? 'اتمام موجودی' : (product.url ? 'مشاهده و سفارش ←' : 'لینک محصول موجود نیست')}</span>
         </span>
       </${tag}>`;
@@ -607,7 +606,6 @@
     .sfps-meta { display: flex; gap: 11px; align-items: center; font-size: 12px; color: #555; }
     .sfps-meta b { color: #ff00a6; }
     .sfps-card-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid #f0f0f2; font-size: 11px; }
-    .sfps-delivery { color: #555; }
     .sfps-card-link { color: #d6008c; font-weight: 700; }
     .sfps-card-disabled { cursor: default; opacity: .72; }
     .sfps-card-disabled .sfps-card-link { color: #888; }
