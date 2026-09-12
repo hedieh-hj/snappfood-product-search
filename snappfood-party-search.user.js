@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.6.0
+// @version      1.7.0
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -24,8 +24,8 @@
     scrollContainerSelector: '#main-container',
     stepRatio: 0.82,
     waitAfterScrollMs: 300,
-    progressTimeoutMs: 2200,
-    stableRoundsToFinish: 4,
+    progressTimeoutMs: 4000,
+    stableRoundsToFinish: 3,
     maxRounds: 700,
   };
 
@@ -67,12 +67,14 @@
   }
 
   function readCard(anchor) {
-    const lines = uniqueLines(anchor.innerText || anchor.textContent || '');
+    const renderedText = anchor.innerText || '';
+    const completeText = anchor.textContent || '';
+    const lines = uniqueLines(renderedText || completeText);
     const ratingIndex = lines.findIndex((line) => /^[۰-۹0-9](?:[٫.][۰-۹0-9])?$/.test(line));
     const discount = lines.find((line) => /^[٪%]\s*[۰-۹0-9]+/.test(line)) || '';
     const priceLines = lines.filter((line) => /^[۰-۹0-9][۰-۹0-9٬,]*$/.test(line));
     const timeIndex = lines.findIndex((line) => /دقیقه/.test(line));
-    const freeDelivery = lines.find((line) => /رایگان/.test(line));
+    const freeDelivery = /رایگان/.test(`${renderedText}\n${completeText}`);
     const deliveryNumber = timeIndex > 1
       ? [...lines.slice(0, timeIndex - 1)].reverse().find((line) => /^[۰-۹0-9][۰-۹0-9٬,]*$/.test(line))
       : '';
@@ -144,8 +146,26 @@
   }
 
   function moveScroller(scroller, top) {
-    scroller.scrollTop = Math.max(0, top);
+    const safeTop = Math.max(0, top);
+    if (typeof scroller.scrollTo === 'function') scroller.scrollTo({ top: safeTop, behavior: 'auto' });
+    else scroller.scrollTop = safeTop;
     scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+  }
+
+  async function sweepToBottom(scroller) {
+    let previousTop = -1;
+    for (let step = 0; step < 250 && !state.cancelled; step += 1) {
+      collectVisibleCards();
+      const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      if (scroller.scrollTop >= maxTop - 4 || scroller.scrollTop === previousTop) break;
+      previousTop = scroller.scrollTop;
+      moveScroller(scroller, Math.min(
+        scroller.scrollTop + Math.max(140, scroller.clientHeight * 0.45),
+        maxTop,
+      ));
+      await sleep(90);
+    }
+    collectVisibleCards();
   }
 
   function findLoadMoreButton() {
@@ -170,20 +190,21 @@
   async function requestNextProducts(scroller) {
     const previousSize = state.products.size;
     const previousHeight = scroller.scrollHeight;
+    await sweepToBottom(scroller);
     const loadMore = findLoadMoreButton();
 
     if (loadMore) loadMore.click();
     const lastAnchor = pageProductAnchors().at(-1);
     const lastCard = lastAnchor && visualCardElement(lastAnchor);
     if (lastCard) lastCard.scrollIntoView({ block: 'end', behavior: 'auto' });
-    moveScroller(scroller, scroller.scrollHeight);
+    moveScroller(scroller, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
 
     if (await waitForProgress(scroller, previousSize, previousHeight)) return true;
 
     // Some infinite lists only react after leaving and re-entering the bottom threshold.
     moveScroller(scroller, Math.max(0, scroller.scrollHeight - scroller.clientHeight - 180));
     await sleep(180);
-    moveScroller(scroller, scroller.scrollHeight);
+    moveScroller(scroller, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
     return waitForProgress(scroller, previousSize, previousHeight);
   }
 
@@ -209,6 +230,7 @@
     try {
       moveScroller(scroller, 0);
       await sleep(CONFIG.waitAfterScrollMs);
+      await sweepToBottom(scroller);
 
       for (let round = 0; round < CONFIG.maxRounds && !state.cancelled; round += 1) {
         collectVisibleCards();
@@ -347,7 +369,10 @@
         </span>
         <span class="sfps-card-footer">
           <span class="sfps-delivery">پیک: ${product.delivery ? `${escapeHtml(product.delivery)}${product.delivery === 'رایگان' ? '' : ' تومان'}` : 'نامشخص'}</span>
-          <a class="sfps-open" href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">بازکردن محصول ↗</a>
+          <span class="sfps-result-actions">
+            <button class="sfps-locate" type="button" data-product-id="${escapeHtml(product.id)}">نمایش در لیست</button>
+            <a class="sfps-open" href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">بازکردن ↗</a>
+          </span>
         </span>
       </article>`).join('');
   }
@@ -402,8 +427,10 @@
     });
     document.querySelector('#sfps-results').addEventListener('click', (event) => {
       if (event.target.closest('.sfps-open')) return;
+      const locateButton = event.target.closest('.sfps-locate');
       const card = event.target.closest('.sfps-card');
-      if (card) scrollToProduct(card.dataset.productId);
+      const id = locateButton?.dataset.productId || card?.dataset.productId;
+      if (id) scrollToProduct(id);
     });
     document.querySelector('#sfps-results').addEventListener('keydown', (event) => {
       if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('.sfps-card')) {
@@ -458,6 +485,8 @@
     .sfps-meta b { color: #ff00a6; }
     .sfps-card-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid #f0f0f2; font-size: 11px; }
     .sfps-delivery { color: #555; }
+    .sfps-result-actions { display: flex; align-items: center; gap: 5px; }
+    .sfps-locate { border: 0; padding: 6px 9px; border-radius: 7px; background: #ff00a6; color: #fff; cursor: pointer; font-size: 11px; font-weight: 700; }
     .sfps-open { padding: 6px 9px; border-radius: 7px; background: #fff0fa; color: #d6008c; text-decoration: none; font-weight: 700; }
     .sfps-page-target { outline: 4px solid #ff00a6 !important; outline-offset: 5px; border-radius: 12px; animation: sfps-pulse .7s ease 3; }
     @keyframes sfps-pulse { 50% { outline-color: #ff00a633; } }
