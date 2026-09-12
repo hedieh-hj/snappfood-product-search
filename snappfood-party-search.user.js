@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.10.1
+// @version      1.10.2
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -192,7 +192,30 @@
     return null;
   }
 
-  function ecoProduct(raw, order, originalHref, exactHrefs) {
+  function ecoReviewUrl(itemId, ecoBaseUrl) {
+    const observed = performance.getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((url) => /\/mobile\/v3\/restaurant\/productReviews/.test(url));
+    const url = observed
+      ? new URL(observed)
+      : new URL('https://snappfood.ir/mobile/v3/restaurant/productReviews');
+    const pageParams = new URLSearchParams(location.search);
+    const lat = ecoBaseUrl.searchParams.get('lat') || pageParams.get('lat');
+    const long = ecoBaseUrl.searchParams.get('long') || pageParams.get('long');
+    if (lat) url.searchParams.set('lat', lat);
+    if (long) url.searchParams.set('long', long);
+    url.searchParams.set('optionalClient', 'SUPERAPP');
+    url.searchParams.set('client', 'SUPERAPP');
+    url.searchParams.set('deviceType', 'SUPERAPP');
+    url.searchParams.set('appVersion', '6.0.0');
+    url.searchParams.set('Bonyan', 'true');
+    url.searchParams.set('variationIds', itemId);
+    url.searchParams.set('page', '0');
+    url.searchParams.set('pageSize', '10');
+    return url.href;
+  }
+
+  function ecoProduct(raw, order, originalHref, exactHrefs, ecoBaseUrl) {
     const item = raw.data || raw;
     const vendor = item.vendor || {};
     const responseHref = item.href || item.url || item.link || item.deepLink || item.deep_link || '';
@@ -219,6 +242,7 @@
         originalHref,
       );
     }
+    if (!url && itemId) url = ecoReviewUrl(itemId, ecoBaseUrl);
     const title = item.title || item.productTitle || 'محصول بدون نام';
     const vendorName = vendor.title || item.vendorTitle || item.vendorName || '';
     const discountRatio = Number(item.discountRatio || item.discount || 0);
@@ -271,7 +295,7 @@
     if (!firstProducts.length) return false;
     state.products.clear();
     firstProducts.forEach((raw) => {
-      const product = ecoProduct(raw, state.products.size, originalHref, exactHrefs);
+      const product = ecoProduct(raw, state.products.size, originalHref, exactHrefs, baseUrl);
       state.products.set(product.id, product);
     });
     state.apiMode = true;
