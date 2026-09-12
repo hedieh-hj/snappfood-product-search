@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.10.2
+// @version      1.10.3
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -196,12 +196,17 @@
     const observed = performance.getEntriesByType('resource')
       .map((entry) => entry.name)
       .find((url) => /\/mobile\/v3\/restaurant\/productReviews/.test(url));
-    const url = observed
-      ? new URL(observed)
-      : new URL('https://snappfood.ir/mobile/v3/restaurant/productReviews');
+    let url;
+    try {
+      url = observed
+        ? new URL(observed)
+        : new URL('https://snappfood.ir/mobile/v3/restaurant/productReviews');
+    } catch {
+      url = new URL('https://snappfood.ir/mobile/v3/restaurant/productReviews');
+    }
     const pageParams = new URLSearchParams(location.search);
-    const lat = ecoBaseUrl.searchParams.get('lat') || pageParams.get('lat');
-    const long = ecoBaseUrl.searchParams.get('long') || pageParams.get('long');
+    const lat = ecoBaseUrl?.searchParams.get('lat') || pageParams.get('lat');
+    const long = ecoBaseUrl?.searchParams.get('long') || pageParams.get('long');
     if (lat) url.searchParams.set('lat', lat);
     if (long) url.searchParams.set('long', long);
     url.searchParams.set('optionalClient', 'SUPERAPP');
@@ -261,6 +266,7 @@
       stock: item.stock == null ? Number.NaN : Number(item.stock),
       text: `${title} · ${vendorName}`,
       searchable: normalize(`${title} ${vendorName}`),
+      source: 'eco',
       order,
     };
   }
@@ -653,10 +659,13 @@
 
     list.innerHTML = products.map((product) => {
       const unavailable = product.stock === 0;
-      const clickable = Boolean(product.url) && !unavailable;
+      const productUrl = product.url || (
+        product.source === 'eco' ? ecoReviewUrl(product.id, ecoApiUrl()) : ''
+      );
+      const clickable = Boolean(productUrl) && !unavailable;
       const tag = clickable ? 'a' : 'article';
       const linkAttributes = clickable
-        ? `href="${escapeHtml(product.url)}" title="بازکردن صفحه سفارش محصول"`
+        ? `href="${escapeHtml(productUrl)}" title="بازکردن اطلاعات محصول"`
         : `aria-disabled="true" title="${unavailable ? 'این محصول ناموجود است' : 'لینک محصول در پاسخ اسنپ‌فود موجود نیست'}"`;
       return `
       <${tag} class="sfps-card${clickable ? '' : ' sfps-card-disabled'}${unavailable ? ' sfps-card-unavailable' : ''}" ${linkAttributes}>
@@ -668,7 +677,7 @@
           ${product.rating ? `<span>★ ${escapeHtml(product.rating)}</span>` : ''}
         </span>
         <span class="sfps-card-footer">
-          <span class="sfps-card-link">${unavailable ? 'اتمام موجودی' : (product.url ? 'مشاهده و سفارش ←' : 'لینک محصول موجود نیست')}</span>
+          <span class="sfps-card-link">${unavailable ? 'اتمام موجودی' : (productUrl ? 'مشاهده محصول ←' : 'لینک محصول موجود نیست')}</span>
         </span>
       </${tag}>`;
     }).join('');
