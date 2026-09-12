@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.8.3
+// @version      1.8.4
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -143,7 +143,39 @@
     return null;
   }
 
-  function apiProduct(raw, order, party) {
+  function productHrefFromOriginal(raw, party, originalHref) {
+    if (!originalHref) return '';
+    try {
+      const url = new URL(originalHref, location.href);
+      const segments = url.pathname.split('/');
+      // Snappfood reads the product id from the second-to-last path segment.
+      const productSegment = segments.length - 2;
+      if (productSegment < 0) return '';
+      segments[productSegment] = encodeURIComponent(String(raw.id));
+      url.pathname = segments.join('/');
+
+      const replacements = {
+        vendorid: raw.vendorId,
+        vendorcode: raw.vendorCode,
+        code: raw.vendorCode,
+        supertype: party.superType,
+        dealprojectcode: raw.deal_project_code,
+        dealprojectlistid: party.dealProjectListId,
+        dealprojectid: raw.deal_project_id,
+      };
+      [...url.searchParams.keys()].forEach((key) => {
+        const value = replacements[key.toLowerCase()];
+        if (value !== undefined && value !== null && value !== '') {
+          url.searchParams.set(key, String(value));
+        }
+      });
+      return url.href;
+    } catch {
+      return '';
+    }
+  }
+
+  function apiProduct(raw, order, party, originalHref, exactHrefs) {
     const variationId = String(raw.productVariationId || raw.id);
     const delivery = raw.isDeliveryFeeHasDiscount
       ? raw.deliveryFeeAfterDiscount
@@ -153,31 +185,20 @@
       : Number(raw.price);
     const title = raw.productVariationTitle || raw.title || 'محصول بدون نام';
     const vendor = raw.vendorTitle || raw.vendorName || '';
-    // This mirrors Snappfood's own PartyCard link builder. The route uses the
-    // deal item id in the path (not productVariationId) and needs its context.
-    const url = new URL(`/party/product-details/${encodeURIComponent(raw.id)}/`, location.origin);
-    const detailParams = {
-      vendorId: raw.vendorId,
-      vendorCode: raw.vendorCode,
-      superType: party.superType,
-      dealProjectCode: raw.deal_project_code,
-      dealProjectListId: party.dealProjectListId,
-      dealProjectId: raw.deal_project_id,
-    };
-    Object.entries(detailParams).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
-    });
+    const exactHref = exactHrefs.get(String(raw.id)) || exactHrefs.get(variationId) || '';
+    const url = exactHref || productHrefFromOriginal(raw, party, originalHref);
     const searchable = normalize(`${title} ${vendor}`);
     return {
       id: variationId,
       variationId,
-      url: url.href,
+      url,
       title,
       vendor,
       rating: raw.rating == null ? '' : String(Math.round(Number(raw.rating) * 5) / 10),
       discount: raw.discountRatio ? `%${raw.discountRatio}` : '',
       price: discountedPrice ? String(discountedPrice) : '',
       delivery: Number(delivery) === 0 ? 'رایگان' : (delivery == null ? '' : String(delivery)),
+      stock: Number(raw.stock),
       text: `${title} · ${vendor}`,
       searchable,
       order,
@@ -199,6 +220,13 @@
     const baseUrl = partyApiUrl();
     if (!baseUrl) return false;
 
+    // Use the exact href format rendered by the current Snappfood page. This
+    // preserves route names, trailing slashes and query-key casing as-is.
+    const originalAnchors = pageProductAnchors();
+    const originalHref = originalAnchors[0]?.href || '';
+    const exactHrefs = new Map(originalAnchors.map((anchor) => [productId(anchor.href), anchor.href]));
+    if (!originalHref) return false;
+
     // A huge page_size is server-controlled and may be rejected or silently capped.
     // 500 reduces round trips substantially while still avoiding an unbounded MAXINT request.
     const requestedPageSize = 500;
@@ -216,7 +244,7 @@
     const rawProducts = [first, ...remainingPages].flatMap((page) => page.products || []);
     state.products.clear();
     rawProducts.forEach((raw) => {
-      const product = apiProduct(raw, state.products.size, first);
+      const product = apiProduct(raw, state.products.size, first, originalHref, exactHrefs);
       state.products.set(product.id, product);
     });
     state.apiMode = true;
@@ -427,8 +455,13 @@
       return;
     }
 
-    list.innerHTML = products.map((product) => `
-      <a class="sfps-card" href="${escapeHtml(product.url)}" title="بازکردن صفحه سفارش محصول">
+    list.innerHTML = products.map((product) => {
+      const tag = product.url ? 'a' : 'article';
+      const linkAttributes = product.url
+        ? `href="${escapeHtml(product.url)}" title="بازکردن صفحه سفارش محصول"`
+        : 'aria-disabled="true" title="لینک محصول در پاسخ اسنپ‌فود موجود نیست"';
+      return `
+      <${tag} class="sfps-card${product.url ? '' : ' sfps-card-disabled'}" ${linkAttributes}>
         <strong>${escapeHtml(product.title)}</strong>
         ${product.vendor ? `<span class="sfps-vendor">${escapeHtml(product.vendor)}</span>` : ''}
         <span class="sfps-meta">
@@ -438,9 +471,10 @@
         </span>
         <span class="sfps-card-footer">
           <span class="sfps-delivery">پیک: ${product.delivery ? `${escapeHtml(product.delivery)}${product.delivery === 'رایگان' ? '' : ' تومان'}` : 'نامشخص'}</span>
-          <span class="sfps-card-link">مشاهده و سفارش ←</span>
+          <span class="sfps-card-link">${product.url ? 'مشاهده و سفارش ←' : 'لینک محصول موجود نیست'}</span>
         </span>
-      </a>`).join('');
+      </${tag}>`;
+    }).join('');
   }
 
   function togglePanel(force) {
@@ -539,6 +573,8 @@
     .sfps-card-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid #f0f0f2; font-size: 11px; }
     .sfps-delivery { color: #555; }
     .sfps-card-link { color: #d6008c; font-weight: 700; }
+    .sfps-card-disabled { cursor: default; opacity: .72; }
+    .sfps-card-disabled .sfps-card-link { color: #888; }
     .sfps-empty { text-align: center; color: #777; padding: 55px 15px; line-height: 2; }
     #sfps-panel footer { padding: 8px; text-align: center; color: #888; background: #fff; font-size: 11px; border-top: 1px solid #eee; display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap; }
     #sfps-panel footer a { color: #d6008c; text-decoration: none; font-weight: 700; }
