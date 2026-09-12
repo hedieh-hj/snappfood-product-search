@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.8.2
+// @version      1.8.3
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -143,7 +143,7 @@
     return null;
   }
 
-  function apiProduct(raw, order) {
+  function apiProduct(raw, order, party) {
     const variationId = String(raw.productVariationId || raw.id);
     const delivery = raw.isDeliveryFeeHasDiscount
       ? raw.deliveryFeeAfterDiscount
@@ -153,10 +153,20 @@
       : Number(raw.price);
     const title = raw.productVariationTitle || raw.title || 'محصول بدون نام';
     const vendor = raw.vendorTitle || raw.vendorName || '';
-    const url = new URL(
-      `/product-details/${encodeURIComponent(raw.vendorCode || '')}/${encodeURIComponent(variationId)}`,
-      location.origin,
-    );
+    // This mirrors Snappfood's own PartyCard link builder. The route uses the
+    // deal item id in the path (not productVariationId) and needs its context.
+    const url = new URL(`/party/product-details/${encodeURIComponent(raw.id)}/`, location.origin);
+    const detailParams = {
+      vendorId: raw.vendorId,
+      vendorCode: raw.vendorCode,
+      superType: party.superType,
+      dealProjectCode: raw.deal_project_code,
+      dealProjectListId: party.dealProjectListId,
+      dealProjectId: raw.deal_project_id,
+    };
+    Object.entries(detailParams).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
+    });
     const searchable = normalize(`${title} ${vendor}`);
     return {
       id: variationId,
@@ -206,7 +216,7 @@
     const rawProducts = [first, ...remainingPages].flatMap((page) => page.products || []);
     state.products.clear();
     rawProducts.forEach((raw) => {
-      const product = apiProduct(raw, state.products.size);
+      const product = apiProduct(raw, state.products.size, first);
       state.products.set(product.id, product);
     });
     state.apiMode = true;
