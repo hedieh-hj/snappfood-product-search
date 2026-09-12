@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.4.1
+// @version      1.5.0
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -332,7 +332,10 @@
           <span id="sfps-status">آمادهٔ جمع‌آوری محصولات</span>
         </div>
         <div id="sfps-results" aria-live="polite"></div>
-        <footer>میانبر: <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></footer>
+        <footer>
+          <span>میانبر: <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></span>
+          <a href="https://github.com/hedieh-hj/snappfood-product-search" target="_blank" rel="noopener noreferrer">ساخته‌شده با ♥ توسط هدیه جمیلی</a>
+        </footer>
       </section>`;
     document.body.appendChild(root);
 
@@ -406,7 +409,9 @@
     .sfps-page-target { outline: 4px solid #ff00a6 !important; outline-offset: 5px; border-radius: 12px; animation: sfps-pulse .7s ease 3; }
     @keyframes sfps-pulse { 50% { outline-color: #ff00a633; } }
     .sfps-empty { text-align: center; color: #777; padding: 55px 15px; line-height: 2; }
-    #sfps-panel footer { padding: 8px; text-align: center; color: #888; background: #fff; font-size: 11px; border-top: 1px solid #eee; }
+    #sfps-panel footer { padding: 8px; text-align: center; color: #888; background: #fff; font-size: 11px; border-top: 1px solid #eee; display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap; }
+    #sfps-panel footer a { color: #d6008c; text-decoration: none; font-weight: 700; }
+    #sfps-panel footer a:hover { text-decoration: underline; }
     #sfps-panel kbd { border: 1px solid #ccc; background: #f5f5f5; border-radius: 4px; padding: 1px 4px; direction: ltr; display: inline-block; }
     @media (max-width: 520px) { #sfps-launcher span { display: none; } #sfps-launcher { width: 48px; padding: 0; justify-content: center; } }
     @media (prefers-reduced-motion: reduce) { #sfps-panel { transition: none; } }
