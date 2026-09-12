@@ -19,12 +19,14 @@
 
 ## نصب
 
+### [نصب مستقیم اسکریپت](https://raw.githubusercontent.com/hedieh-hj/snappfood-product-search/main/snappfood-party-search.user.js)
+
 1. افزونه [Tampermonkey](https://www.tampermonkey.net/) را روی مرورگر نصب کنید.
 2. فایل [`snappfood-party-search.user.js`](./snappfood-party-search.user.js) را در حالت Raw باز کنید.
 3. در صفحه Tampermonkey گزینه **Install** را بزنید.
 4. وارد یکی از صفحات فهرست محصولات اسنپ‌فود، مانند [فودپارتی](https://superapp.snappfood.ir/party/?dealProjectListId=23)، شوید.
 
-> بعد از قراردادن پروژه در GitHub، لینک Raw فایل را می‌توانید به‌عنوان لینک نصب یک‌کلیکی در README قرار دهید.
+به‌روزرسانی نسخه‌های بعدی از طریق Tampermonkey به‌صورت خودکار قابل دریافت است.
 
 ## استفاده
 
@@ -35,13 +37,6 @@
 ## توسعه و انتشار
 
 پروژه به ابزار build یا dependency نیاز ندارد. فایل Userscript مستقیماً قابل نصب است. هنگام انتشار نسخه جدید، مقدار `@version` در ابتدای فایل را افزایش دهید.
-
-اگر نام کاربری و نام مخزن GitHub را مشخص کردید، می‌توانید این دو خط را نیز به metadata فایل اضافه کنید تا به‌روزرسانی خودکار فعال شود:
-
-```js
-// @downloadURL  https://raw.githubusercontent.com/USERNAME/REPOSITORY/main/snappfood-party-search.user.js
-// @updateURL    https://raw.githubusercontent.com/USERNAME/REPOSITORY/main/snappfood-party-search.user.js
-```
 
 ## محدودیت
 

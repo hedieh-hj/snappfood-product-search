@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.4.0
+// @version      1.4.1
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
 // @match        https://snappfood.ir/*
 // @match        https://*.snappfood.ir/*
 // @icon         https://superapp.snappfood.ir/favicon.ico
+// @downloadURL  https://raw.githubusercontent.com/hedieh-hj/snappfood-product-search/main/snappfood-party-search.user.js
+// @updateURL    https://raw.githubusercontent.com/hedieh-hj/snappfood-product-search/main/snappfood-party-search.user.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
