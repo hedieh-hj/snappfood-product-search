@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.8.7
+// @version      1.8.8
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -192,8 +192,14 @@
     const title = raw.productVariationTitle || raw.title || 'محصول بدون نام';
     const vendor = raw.vendorTitle || raw.vendorName || '';
     const renderedProduct = renderedProducts.get(String(raw.id)) || renderedProducts.get(variationId);
+    const proDelivery = delivery !== undefined && delivery !== null && delivery !== ''
+      && Number.isFinite(Number(delivery))
+      ? Math.max(0, Number(delivery) - 35000)
+      : null;
     const deliveryLabel = renderedProduct?.delivery
-      || (proFreeDelivery && (raw.is_pro || raw.isPro) ? 'رایگان' : '')
+      || (proFreeDelivery && (raw.is_pro || raw.isPro) && proDelivery !== null
+        ? (proDelivery === 0 ? 'رایگان' : String(proDelivery))
+        : '')
       || (Number(delivery) === 0 ? 'رایگان' : (delivery == null ? '' : String(delivery)));
     const exactHref = exactHrefs.get(String(raw.id)) || exactHrefs.get(variationId) || '';
     const url = exactHref || productHrefFromOriginal(raw, party, originalHref);
