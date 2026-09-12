@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.8.9
+// @version      1.9.0
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -141,6 +141,104 @@
       if (found) return found;
     }
     return null;
+  }
+
+  function ecoApiUrl() {
+    if (!/^\/eco\/?$/.test(location.pathname)) return null;
+    const observed = performance.getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((url) => /\/search\/api\/v1\/eco-food\/product-list/.test(url));
+    if (observed) return new URL(observed);
+
+    const url = new URL('https://snappfood.ir/search/api/v1/eco-food/product-list');
+    const cookies = Object.fromEntries(document.cookie.split('; ').map((item) => {
+      const separator = item.indexOf('=');
+      return separator < 0 ? [item, ''] : [item.slice(0, separator), item.slice(separator + 1)];
+    }));
+    if (cookies.lat) url.searchParams.set('lat', cookies.lat);
+    if (cookies.long) url.searchParams.set('long', cookies.long);
+    const superType = new URLSearchParams(location.search).get('superType');
+    if (superType) url.searchParams.set('superType', JSON.stringify([Number(superType)]));
+    return url;
+  }
+
+  function unwrapEcoPayload(value) {
+    if (!value || typeof value !== 'object') return null;
+    if (Array.isArray(value.finalResult)) return value;
+    for (const key of ['data', 'result']) {
+      const found = unwrapEcoPayload(value[key]);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function ecoProduct(raw, order) {
+    const item = raw.data || raw;
+    const vendor = item.vendor || {};
+    const responseHref = item.href || item.url || item.link || item.deepLink || item.deep_link || '';
+    let url = '';
+    try {
+      if (responseHref) url = new URL(responseHref, location.origin).href;
+    } catch {
+      url = '';
+    }
+    const title = item.title || item.productTitle || 'محصول بدون نام';
+    const vendorName = vendor.title || item.vendorTitle || item.vendorName || '';
+    const discountRatio = Number(item.discountRatio || item.discount || 0);
+    const price = item.final_price ?? item.finalPrice ?? (
+      discountRatio ? Math.round(Number(item.price) * (100 - discountRatio) / 100) : item.price
+    );
+    return {
+      id: String(item.id),
+      url,
+      title,
+      vendor: vendorName,
+      rating: item.normalized_rating ?? item.rating ?? '',
+      discount: discountRatio ? `%${discountRatio}` : '',
+      price: price == null ? '' : String(price),
+      delivery: '',
+      stock: item.stock == null ? Number.NaN : Number(item.stock),
+      text: `${title} · ${vendorName}`,
+      searchable: normalize(`${title} ${vendorName}`),
+      order,
+    };
+  }
+
+  async function fetchEcoPage(baseUrl, page, pageSize) {
+    const url = new URL(baseUrl);
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('page_size', String(pageSize));
+    const response = await fetch(url, { credentials: 'include' });
+    if (!response.ok) throw new Error(`Eco API returned ${response.status}`);
+    const payload = unwrapEcoPayload(await response.json());
+    if (!payload) throw new Error('Eco API response was not recognized');
+    return payload;
+  }
+
+  async function collectAllViaEcoApi() {
+    const baseUrl = ecoApiUrl();
+    if (!baseUrl) return false;
+    const requestedPageSize = 500;
+    const first = await fetchEcoPage(baseUrl, 0, requestedPageSize);
+    const firstProducts = first.finalResult || [];
+    const total = Number(first.count ?? first.total) || firstProducts.length;
+    const effectivePageSize = firstProducts.length;
+    if (!effectivePageSize) return false;
+    const pageCount = Math.ceil(total / effectivePageSize);
+    const remainingPages = await Promise.all(
+      Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => (
+        fetchEcoPage(baseUrl, index + 1, requestedPageSize)
+      )),
+    );
+    const rawProducts = [first, ...remainingPages].flatMap((page) => page.finalResult || []);
+    state.products.clear();
+    rawProducts.forEach((raw) => {
+      const product = ecoProduct(raw, state.products.size);
+      state.products.set(product.id, product);
+    });
+    state.apiMode = true;
+    updateCounter(total);
+    return true;
   }
 
   function productHrefFromOriginal(raw, party, originalHref) {
@@ -400,6 +498,10 @@
     try {
       setStatus('در حال دریافت مستقیم فهرست محصولات…', 'loading');
       try {
+        if (await collectAllViaEcoApi()) {
+          setStatus('همهٔ محصولات Eco دریافت شدند و آمادهٔ جستجو هستند.', 'success');
+          return;
+        }
         if (await collectAllViaPartyApi()) {
           setStatus('همهٔ محصولات از API دریافت شدند و آمادهٔ جستجو هستند.', 'success');
           return;
@@ -622,7 +724,7 @@
   document.head.appendChild(style);
 
   function syncWithPage() {
-    const hasProducts = pageProductAnchors().length > 0;
+    const hasProducts = pageProductAnchors().length > 0 || /^\/eco\/?$/.test(location.pathname);
     let root = document.querySelector('#sfps-root');
     const pageKey = `${location.pathname}${location.search}`;
 
