@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.5.0
+// @version      1.6.0
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -22,9 +22,10 @@
   const CONFIG = {
     cardSelector: 'a[href*="/product-details/"], a[href*="/product/"]',
     scrollContainerSelector: '#main-container',
-    stepRatio: 0.72,
-    waitAfterScrollMs: 420,
-    stableRoundsToFinish: 7,
+    stepRatio: 0.82,
+    waitAfterScrollMs: 300,
+    progressTimeoutMs: 2200,
+    stableRoundsToFinish: 4,
     maxRounds: 700,
   };
 
@@ -71,7 +72,7 @@
     const discount = lines.find((line) => /^[٪%]\s*[۰-۹0-9]+/.test(line)) || '';
     const priceLines = lines.filter((line) => /^[۰-۹0-9][۰-۹0-9٬,]*$/.test(line));
     const timeIndex = lines.findIndex((line) => /دقیقه/.test(line));
-    const freeDelivery = lines.find((line) => /ارسال\s*رایگان/.test(line));
+    const freeDelivery = lines.find((line) => /رایگان/.test(line));
     const deliveryNumber = timeIndex > 1
       ? [...lines.slice(0, timeIndex - 1)].reverse().find((line) => /^[۰-۹0-9][۰-۹0-9٬,]*$/.test(line))
       : '';
@@ -100,7 +101,12 @@
     let added = 0;
     pageProductAnchors().forEach((anchor) => {
       const product = readCard(anchor);
-      if (!state.products.has(product.id)) added += 1;
+      if (!state.products.has(product.id)) {
+        product.order = state.products.size;
+        added += 1;
+      } else {
+        product.order = state.products.get(product.id).order;
+      }
       state.products.set(product.id, product);
     });
     return added;
@@ -137,6 +143,50 @@
       : `${fa.format(state.products.size)} محصول`;
   }
 
+  function moveScroller(scroller, top) {
+    scroller.scrollTop = Math.max(0, top);
+    scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+  }
+
+  function findLoadMoreButton() {
+    return [...document.querySelectorAll('button')].find((button) => (
+      !button.closest('#sfps-root')
+      && /(?:نمایش|مشاهده|بارگذاری).*بیشتر|بیشتر/.test(normalize(button.innerText))
+      && !button.disabled
+    ));
+  }
+
+  async function waitForProgress(scroller, previousSize, previousHeight) {
+    const deadline = Date.now() + CONFIG.progressTimeoutMs;
+    while (Date.now() < deadline && !state.cancelled) {
+      await sleep(120);
+      collectVisibleCards();
+      updateCounter();
+      if (state.products.size > previousSize || scroller.scrollHeight > previousHeight) return true;
+    }
+    return false;
+  }
+
+  async function requestNextProducts(scroller) {
+    const previousSize = state.products.size;
+    const previousHeight = scroller.scrollHeight;
+    const loadMore = findLoadMoreButton();
+
+    if (loadMore) loadMore.click();
+    const lastAnchor = pageProductAnchors().at(-1);
+    const lastCard = lastAnchor && visualCardElement(lastAnchor);
+    if (lastCard) lastCard.scrollIntoView({ block: 'end', behavior: 'auto' });
+    moveScroller(scroller, scroller.scrollHeight);
+
+    if (await waitForProgress(scroller, previousSize, previousHeight)) return true;
+
+    // Some infinite lists only react after leaving and re-entering the bottom threshold.
+    moveScroller(scroller, Math.max(0, scroller.scrollHeight - scroller.clientHeight - 180));
+    await sleep(180);
+    moveScroller(scroller, scroller.scrollHeight);
+    return waitForProgress(scroller, previousSize, previousHeight);
+  }
+
   async function collectAll() {
     if (state.collecting) return;
     const scroller = getScrollContainer();
@@ -147,17 +197,17 @@
 
     state.collecting = true;
     state.cancelled = false;
+    state.products.clear();
     const originalTop = scroller.scrollTop;
     const expected = expectedCount();
     let stableRounds = 0;
-    let previousSize = -1;
 
     document.querySelector('#sfps-load').hidden = true;
     document.querySelector('#sfps-stop').hidden = false;
     setStatus('در حال جمع‌آوری؛ لطفاً این صفحه را باز نگه دارید…', 'loading');
 
     try {
-      scroller.scrollTop = 0;
+      moveScroller(scroller, 0);
       await sleep(CONFIG.waitAfterScrollMs);
 
       for (let round = 0; round < CONFIG.maxRounds && !state.cancelled; round += 1) {
@@ -166,19 +216,9 @@
         renderResults();
 
         if (expected && state.products.size >= expected) break;
-        stableRounds = state.products.size === previousSize ? stableRounds + 1 : 0;
-        previousSize = state.products.size;
-
-        const beforeTop = scroller.scrollTop;
-        const nearBottom = beforeTop + scroller.clientHeight >= scroller.scrollHeight - 8;
-        if (nearBottom && stableRounds >= CONFIG.stableRoundsToFinish) break;
-
-        scroller.scrollTop = Math.min(
-          beforeTop + Math.max(220, scroller.clientHeight * CONFIG.stepRatio),
-          scroller.scrollHeight,
-        );
-        scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
-        await sleep(CONFIG.waitAfterScrollMs);
+        const progressed = await requestNextProducts(scroller);
+        stableRounds = progressed ? 0 : stableRounds + 1;
+        if (stableRounds >= CONFIG.stableRoundsToFinish) break;
       }
 
       collectVisibleCards();
@@ -196,7 +236,7 @@
       console.error('[Snappfood Party Search]', error);
       setStatus('هنگام خواندن لیست خطایی رخ داد. دوباره تلاش کنید.', 'error');
     } finally {
-      scroller.scrollTop = Math.min(originalTop, scroller.scrollHeight);
+      moveScroller(scroller, Math.min(originalTop, scroller.scrollHeight));
       state.collecting = false;
       const loadButton = document.querySelector('#sfps-load');
       const stopButton = document.querySelector('#sfps-stop');
@@ -214,6 +254,16 @@
       .find((anchor) => productId(anchor.href) === id);
   }
 
+  function visualCardElement(anchor) {
+    let element = anchor;
+    while (element.parentElement && element.parentElement !== document.body) {
+      const rect = element.getBoundingClientRect();
+      if (rect.height >= 70 && rect.width >= 180) return element;
+      element = element.parentElement;
+    }
+    return anchor;
+  }
+
   async function scrollToProduct(id) {
     if (state.locating || state.collecting) return;
     const scroller = getScrollContainer();
@@ -225,14 +275,18 @@
     let previousTop = -1;
 
     try {
-      scroller.scrollTop = 0;
-      scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
-      await sleep(CONFIG.waitAfterScrollMs);
+      const product = state.products.get(id);
+      const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      const ratio = product && state.products.size > 1
+        ? product.order / (state.products.size - 1)
+        : 0;
+      moveScroller(scroller, Math.max(0, (maxTop * ratio) - (scroller.clientHeight * 2)));
+      await sleep(CONFIG.waitAfterScrollMs * 2);
 
       for (let round = 0; round < CONFIG.maxRounds; round += 1) {
         const target = findVisibleProduct(id);
         if (target) {
-          const visibleCard = target.closest('div') || target;
+          const visibleCard = visualCardElement(target);
           visibleCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
           visibleCard.classList.add('sfps-page-target');
           setTimeout(() => visibleCard.classList.remove('sfps-page-target'), 3200);
@@ -244,11 +298,10 @@
         previousTop = beforeTop;
         if (stableRounds >= CONFIG.stableRoundsToFinish) break;
 
-        scroller.scrollTop = Math.min(
-          beforeTop + Math.max(180, scroller.clientHeight * 0.58),
+        moveScroller(scroller, Math.min(
+          beforeTop + Math.max(120, scroller.clientHeight * 0.35),
           scroller.scrollHeight,
-        );
-        scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+        ));
         await sleep(CONFIG.waitAfterScrollMs);
       }
 
@@ -334,7 +387,7 @@
         <div id="sfps-results" aria-live="polite"></div>
         <footer>
           <span>میانبر: <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></span>
-          <a href="https://github.com/hedieh-hj/snappfood-product-search" target="_blank" rel="noopener noreferrer">ساخته‌شده با ♥ توسط هدیه جمیلی</a>
+          <a href="https://github.com/hedieh-hj" target="_blank" rel="noopener noreferrer">توسعه‌یافته توسط @hedieh-hj</a>
         </footer>
       </section>`;
     document.body.appendChild(root);
