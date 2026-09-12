@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.8.6
+// @version      1.8.7
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -175,7 +175,7 @@
     }
   }
 
-  function apiProduct(raw, order, party, originalHref, exactHrefs) {
+  function apiProduct(raw, order, party, originalHref, exactHrefs, renderedProducts, proFreeDelivery) {
     const variationId = String(raw.productVariationId || raw.id);
     const originalDelivery = raw.deliveryFee ?? raw.delivery_fee;
     const finalDelivery = raw.deliveryFeeAfterDiscount
@@ -191,6 +191,10 @@
       : Number(raw.price);
     const title = raw.productVariationTitle || raw.title || 'محصول بدون نام';
     const vendor = raw.vendorTitle || raw.vendorName || '';
+    const renderedProduct = renderedProducts.get(String(raw.id)) || renderedProducts.get(variationId);
+    const deliveryLabel = renderedProduct?.delivery
+      || (proFreeDelivery && (raw.is_pro || raw.isPro) ? 'رایگان' : '')
+      || (Number(delivery) === 0 ? 'رایگان' : (delivery == null ? '' : String(delivery)));
     const exactHref = exactHrefs.get(String(raw.id)) || exactHrefs.get(variationId) || '';
     const url = exactHref || productHrefFromOriginal(raw, party, originalHref);
     const searchable = normalize(`${title} ${vendor}`);
@@ -203,7 +207,7 @@
       rating: raw.rating == null ? '' : String(Math.round(Number(raw.rating) * 5) / 10),
       discount: raw.discountRatio ? `%${raw.discountRatio}` : '',
       price: discountedPrice ? String(discountedPrice) : '',
-      delivery: Number(delivery) === 0 ? 'رایگان' : (delivery == null ? '' : String(delivery)),
+      delivery: deliveryLabel,
       stock: Number(raw.stock),
       text: `${title} · ${vendor}`,
       searchable,
@@ -231,6 +235,14 @@
     const originalAnchors = pageProductAnchors();
     const originalHref = originalAnchors[0]?.href || '';
     const exactHrefs = new Map(originalAnchors.map((anchor) => [productId(anchor.href), anchor.href]));
+    const renderedProducts = new Map(originalAnchors.map((anchor) => {
+      const product = readCard(anchor);
+      return [product.id, product];
+    }));
+    const proFreeDelivery = originalAnchors.some((anchor) => {
+      const text = `${anchor.innerText || ''}\n${anchor.textContent || ''}`;
+      return /رایگان/.test(text) && /\bPro\b/i.test(text);
+    });
     if (!originalHref) return false;
 
     // A huge page_size is server-controlled and may be rejected or silently capped.
@@ -250,7 +262,15 @@
     const rawProducts = [first, ...remainingPages].flatMap((page) => page.products || []);
     state.products.clear();
     rawProducts.forEach((raw) => {
-      const product = apiProduct(raw, state.products.size, first, originalHref, exactHrefs);
+      const product = apiProduct(
+        raw,
+        state.products.size,
+        first,
+        originalHref,
+        exactHrefs,
+        renderedProducts,
+        proFreeDelivery,
+      );
       state.products.set(product.id, product);
     });
     state.apiMode = true;
