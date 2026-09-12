@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.7.0
+// @version      1.8.0
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -35,6 +35,7 @@
     locating: false,
     cancelled: false,
     query: '',
+    apiMode: false,
   };
 
   const fa = new Intl.NumberFormat('fa-IR');
@@ -112,6 +113,104 @@
       state.products.set(product.id, product);
     });
     return added;
+  }
+
+  function partyApiUrl() {
+    const observed = performance.getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((url) => /\/search\/api\/v[24]\/food-party/.test(url));
+    if (observed) return new URL(observed);
+
+    const dealProjectListId = new URLSearchParams(location.search).get('dealProjectListId');
+    if (!dealProjectListId) return null;
+    const cookies = Object.fromEntries(document.cookie.split('; ').map((item) => {
+      const separator = item.indexOf('=');
+      return separator < 0 ? [item, ''] : [item.slice(0, separator), item.slice(separator + 1)];
+    }));
+    const url = new URL('https://snappfood.ir/search/api/v4/food-party');
+    url.searchParams.set('deal_project_list_id', dealProjectListId);
+    if (cookies.lat) url.searchParams.set('lat', cookies.lat);
+    if (cookies.long) url.searchParams.set('long', cookies.long);
+    return url;
+  }
+
+  function unwrapPartyPayload(value) {
+    if (!value || typeof value !== 'object') return null;
+    if (Array.isArray(value.products) && ('total_count' in value || 'dealProjectCode' in value)) return value;
+    for (const key of ['data', 'result']) {
+      const found = unwrapPartyPayload(value[key]);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function apiProduct(raw, order) {
+    const variationId = String(raw.productVariationId || raw.id);
+    const delivery = raw.isDeliveryFeeHasDiscount
+      ? raw.deliveryFeeAfterDiscount
+      : raw.deliveryFee;
+    const discountedPrice = raw.discountRatio
+      ? Math.round(Number(raw.price) * (100 - Number(raw.discountRatio)) / 100)
+      : Number(raw.price);
+    const title = raw.productVariationTitle || raw.title || 'محصول بدون نام';
+    const vendor = raw.vendorTitle || raw.vendorName || '';
+    const url = new URL(location.href);
+    url.searchParams.set('productVariationID', variationId);
+    const searchable = normalize(`${title} ${vendor}`);
+    return {
+      id: variationId,
+      variationId,
+      url: url.href,
+      title,
+      vendor,
+      rating: raw.rating == null ? '' : String(Math.round(Number(raw.rating) * 5) / 10),
+      discount: raw.discountRatio ? `%${raw.discountRatio}` : '',
+      price: discountedPrice ? String(discountedPrice) : '',
+      delivery: Number(delivery) === 0 ? 'رایگان' : (delivery == null ? '' : String(delivery)),
+      text: `${title} · ${vendor}`,
+      searchable,
+      order,
+    };
+  }
+
+  async function fetchPartyPage(baseUrl, page, pageSize) {
+    const url = new URL(baseUrl);
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('page_size', String(pageSize));
+    const response = await fetch(url, { credentials: 'include' });
+    if (!response.ok) throw new Error(`Party API returned ${response.status}`);
+    const payload = unwrapPartyPayload(await response.json());
+    if (!payload) throw new Error('Party API response was not recognized');
+    return payload;
+  }
+
+  async function collectAllViaPartyApi() {
+    const baseUrl = partyApiUrl();
+    if (!baseUrl) return false;
+
+    // A huge page_size is server-controlled and may be rejected or silently capped.
+    // 100 keeps requests small enough for the API while reducing round trips substantially.
+    const requestedPageSize = 100;
+    const first = await fetchPartyPage(baseUrl, 0, requestedPageSize);
+    const firstProducts = first.products || [];
+    if (!firstProducts.length) return false;
+    const total = Number(first.total_count) || firstProducts.length;
+    const effectivePageSize = firstProducts.length;
+    const pageCount = Math.ceil(total / effectivePageSize);
+    const remainingPages = await Promise.all(
+      Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => (
+        fetchPartyPage(baseUrl, index + 1, requestedPageSize)
+      )),
+    );
+    const rawProducts = [first, ...remainingPages].flatMap((page) => page.products || []);
+    state.products.clear();
+    rawProducts.forEach((raw) => {
+      const product = apiProduct(raw, state.products.size);
+      state.products.set(product.id, product);
+    });
+    state.apiMode = true;
+    updateCounter(total);
+    return true;
   }
 
   function expectedCount() {
@@ -228,6 +327,18 @@
     setStatus('در حال جمع‌آوری؛ لطفاً این صفحه را باز نگه دارید…', 'loading');
 
     try {
+      setStatus('در حال دریافت مستقیم فهرست محصولات…', 'loading');
+      try {
+        if (await collectAllViaPartyApi()) {
+          setStatus('همهٔ محصولات از API دریافت شدند و آمادهٔ جستجو هستند.', 'success');
+          return;
+        }
+      } catch (apiError) {
+        console.warn('[Snappfood Party Search] API fallback:', apiError);
+        state.apiMode = false;
+        setStatus('دریافت مستقیم ممکن نشد؛ در حال خواندن خود صفحه…', 'warning');
+      }
+
       moveScroller(scroller, 0);
       await sleep(CONFIG.waitAfterScrollMs);
       await sweepToBottom(scroller);
@@ -293,6 +404,18 @@
 
     state.locating = true;
     togglePanel(false);
+
+    const product = state.products.get(id);
+    const variationId = product?.variationId || (/^\d+$/.test(id) ? id : null);
+    if (variationId) {
+      const targetUrl = new URL(location.href);
+      targetUrl.searchParams.set('productVariationID', variationId);
+      // Snappfood itself watches this parameter and calls its virtual list's
+      // scrollToIndex, so this remains exact even for products not in the DOM yet.
+      location.assign(targetUrl.href);
+      return;
+    }
+
     let stableRounds = 0;
     let previousTop = -1;
 
