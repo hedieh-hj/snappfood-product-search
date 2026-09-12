@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.8.0
+// @version      1.8.1
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -189,8 +189,8 @@
     if (!baseUrl) return false;
 
     // A huge page_size is server-controlled and may be rejected or silently capped.
-    // 100 keeps requests small enough for the API while reducing round trips substantially.
-    const requestedPageSize = 100;
+    // 500 reduces round trips substantially while still avoiding an unbounded MAXINT request.
+    const requestedPageSize = 500;
     const first = await fetchPartyPage(baseUrl, 0, requestedPageSize);
     const firstProducts = first.products || [];
     if (!firstProducts.length) return false;
