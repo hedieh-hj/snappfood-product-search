@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.8.1
+// @version      1.8.2
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -32,7 +32,6 @@
   const state = {
     products: new Map(),
     collecting: false,
-    locating: false,
     cancelled: false,
     query: '',
     apiMode: false,
@@ -154,8 +153,10 @@
       : Number(raw.price);
     const title = raw.productVariationTitle || raw.title || 'محصول بدون نام';
     const vendor = raw.vendorTitle || raw.vendorName || '';
-    const url = new URL(location.href);
-    url.searchParams.set('productVariationID', variationId);
+    const url = new URL(
+      `/product-details/${encodeURIComponent(raw.vendorCode || '')}/${encodeURIComponent(variationId)}`,
+      location.origin,
+    );
     const searchable = normalize(`${title} ${vendor}`);
     return {
       id: variationId,
@@ -382,11 +383,6 @@
     }
   }
 
-  function findVisibleProduct(id) {
-    return pageProductAnchors()
-      .find((anchor) => productId(anchor.href) === id);
-  }
-
   function visualCardElement(anchor) {
     let element = anchor;
     while (element.parentElement && element.parentElement !== document.body) {
@@ -395,66 +391,6 @@
       element = element.parentElement;
     }
     return anchor;
-  }
-
-  async function scrollToProduct(id) {
-    if (state.locating || state.collecting) return;
-    const scroller = getScrollContainer();
-    if (!scroller) return;
-
-    state.locating = true;
-    togglePanel(false);
-
-    const product = state.products.get(id);
-    const variationId = product?.variationId || (/^\d+$/.test(id) ? id : null);
-    if (variationId) {
-      const targetUrl = new URL(location.href);
-      targetUrl.searchParams.set('productVariationID', variationId);
-      // Snappfood itself watches this parameter and calls its virtual list's
-      // scrollToIndex, so this remains exact even for products not in the DOM yet.
-      location.assign(targetUrl.href);
-      return;
-    }
-
-    let stableRounds = 0;
-    let previousTop = -1;
-
-    try {
-      const product = state.products.get(id);
-      const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-      const ratio = product && state.products.size > 1
-        ? product.order / (state.products.size - 1)
-        : 0;
-      moveScroller(scroller, Math.max(0, (maxTop * ratio) - (scroller.clientHeight * 2)));
-      await sleep(CONFIG.waitAfterScrollMs * 2);
-
-      for (let round = 0; round < CONFIG.maxRounds; round += 1) {
-        const target = findVisibleProduct(id);
-        if (target) {
-          const visibleCard = visualCardElement(target);
-          visibleCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          visibleCard.classList.add('sfps-page-target');
-          setTimeout(() => visibleCard.classList.remove('sfps-page-target'), 3200);
-          return;
-        }
-
-        const beforeTop = scroller.scrollTop;
-        stableRounds = beforeTop === previousTop ? stableRounds + 1 : 0;
-        previousTop = beforeTop;
-        if (stableRounds >= CONFIG.stableRoundsToFinish) break;
-
-        moveScroller(scroller, Math.min(
-          beforeTop + Math.max(120, scroller.clientHeight * 0.35),
-          scroller.scrollHeight,
-        ));
-        await sleep(CONFIG.waitAfterScrollMs);
-      }
-
-      togglePanel(true);
-      setStatus('محصول در نسخهٔ فعلی لیست پیدا نشد؛ ممکن است موجودی تغییر کرده باشد.', 'warning');
-    } finally {
-      state.locating = false;
-    }
   }
 
   function escapeHtml(value) {
@@ -482,7 +418,7 @@
     }
 
     list.innerHTML = products.map((product) => `
-      <article class="sfps-card" data-product-id="${escapeHtml(product.id)}" role="button" tabindex="0" title="نمایش این محصول در لیست اصلی">
+      <a class="sfps-card" href="${escapeHtml(product.url)}" title="بازکردن صفحه سفارش محصول">
         <strong>${escapeHtml(product.title)}</strong>
         ${product.vendor ? `<span class="sfps-vendor">${escapeHtml(product.vendor)}</span>` : ''}
         <span class="sfps-meta">
@@ -492,12 +428,9 @@
         </span>
         <span class="sfps-card-footer">
           <span class="sfps-delivery">پیک: ${product.delivery ? `${escapeHtml(product.delivery)}${product.delivery === 'رایگان' ? '' : ' تومان'}` : 'نامشخص'}</span>
-          <span class="sfps-result-actions">
-            <button class="sfps-locate" type="button" data-product-id="${escapeHtml(product.id)}">نمایش در لیست</button>
-            <a class="sfps-open" href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">بازکردن ↗</a>
-          </span>
+          <span class="sfps-card-link">مشاهده و سفارش ←</span>
         </span>
-      </article>`).join('');
+      </a>`).join('');
   }
 
   function togglePanel(force) {
@@ -548,19 +481,6 @@
       state.query = event.target.value;
       renderResults();
     });
-    document.querySelector('#sfps-results').addEventListener('click', (event) => {
-      if (event.target.closest('.sfps-open')) return;
-      const locateButton = event.target.closest('.sfps-locate');
-      const card = event.target.closest('.sfps-card');
-      const id = locateButton?.dataset.productId || card?.dataset.productId;
-      if (id) scrollToProduct(id);
-    });
-    document.querySelector('#sfps-results').addEventListener('keydown', (event) => {
-      if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('.sfps-card')) {
-        event.preventDefault();
-        scrollToProduct(event.target.dataset.productId);
-      }
-    });
     document.addEventListener('keydown', (event) => {
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'f') {
         event.preventDefault();
@@ -600,7 +520,7 @@
     #sfps-status[data-kind="warning"] { color: #a55a00; }
     #sfps-status[data-kind="error"] { color: #c42a2a; }
     #sfps-results { overflow-y: auto; padding: 4px 12px 14px; overscroll-behavior: contain; }
-    .sfps-card { display: grid; gap: 6px; margin: 8px 0; padding: 13px 14px; border: 1px solid #ececf0; border-radius: 13px; background: #fff; color: inherit; box-shadow: 0 2px 8px #0000000a; cursor: pointer; }
+    .sfps-card { display: grid; gap: 6px; margin: 8px 0; padding: 13px 14px; border: 1px solid #ececf0; border-radius: 13px; background: #fff; color: inherit; box-shadow: 0 2px 8px #0000000a; cursor: pointer; text-decoration: none; }
     .sfps-card:hover, .sfps-card:focus { border-color: #ff00a666; transform: translateY(-1px); outline: none; }
     .sfps-card strong { font-size: 14px; line-height: 1.6; }
     .sfps-vendor { color: #666; font-size: 12px; }
@@ -608,11 +528,7 @@
     .sfps-meta b { color: #ff00a6; }
     .sfps-card-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid #f0f0f2; font-size: 11px; }
     .sfps-delivery { color: #555; }
-    .sfps-result-actions { display: flex; align-items: center; gap: 5px; }
-    .sfps-locate { border: 0; padding: 6px 9px; border-radius: 7px; background: #ff00a6; color: #fff; cursor: pointer; font-size: 11px; font-weight: 700; }
-    .sfps-open { padding: 6px 9px; border-radius: 7px; background: #fff0fa; color: #d6008c; text-decoration: none; font-weight: 700; }
-    .sfps-page-target { outline: 4px solid #ff00a6 !important; outline-offset: 5px; border-radius: 12px; animation: sfps-pulse .7s ease 3; }
-    @keyframes sfps-pulse { 50% { outline-color: #ff00a633; } }
+    .sfps-card-link { color: #d6008c; font-weight: 700; }
     .sfps-empty { text-align: center; color: #777; padding: 55px 15px; line-height: 2; }
     #sfps-panel footer { padding: 8px; text-align: center; color: #888; background: #fff; font-size: 11px; border-top: 1px solid #eee; display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap; }
     #sfps-panel footer a { color: #d6008c; text-decoration: none; font-weight: 700; }
