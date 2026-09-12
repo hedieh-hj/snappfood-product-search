@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.1.0
+// @version      1.2.0
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -28,6 +28,7 @@
   const state = {
     products: new Map(),
     collecting: false,
+    locating: false,
     cancelled: false,
     query: '',
   };
@@ -66,6 +67,11 @@
     const ratingIndex = lines.findIndex((line) => /^[۰-۹0-9](?:[٫.][۰-۹0-9])?$/.test(line));
     const discount = lines.find((line) => /^[٪%]\s*[۰-۹0-9]+/.test(line)) || '';
     const priceLines = lines.filter((line) => /^[۰-۹0-9][۰-۹0-9٬,]*$/.test(line));
+    const timeIndex = lines.findIndex((line) => /دقیقه/.test(line));
+    const freeDelivery = lines.find((line) => /ارسال\s*رایگان/.test(line));
+    const deliveryNumber = timeIndex > 1
+      ? [...lines.slice(0, timeIndex - 1)].reverse().find((line) => /^[۰-۹0-9][۰-۹0-9٬,]*$/.test(line))
+      : '';
     const url = new URL(anchor.href, location.href).href;
 
     return {
@@ -76,6 +82,7 @@
       rating: ratingIndex >= 0 ? lines[ratingIndex] : '',
       discount,
       price: priceLines.at(-1) || '',
+      delivery: freeDelivery ? 'رایگان' : deliveryNumber || '',
       text: lines.join(' · '),
       searchable: normalize(lines.join(' ')),
     };
@@ -192,6 +199,56 @@
     }
   }
 
+  function findVisibleProduct(id) {
+    return [...document.querySelectorAll(CONFIG.cardSelector)]
+      .find((anchor) => productId(anchor.href) === id);
+  }
+
+  async function scrollToProduct(id) {
+    if (state.locating || state.collecting) return;
+    const scroller = getScrollContainer();
+    if (!scroller) return;
+
+    state.locating = true;
+    togglePanel(false);
+    let stableRounds = 0;
+    let previousTop = -1;
+
+    try {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await sleep(CONFIG.waitAfterScrollMs);
+
+      for (let round = 0; round < CONFIG.maxRounds; round += 1) {
+        const target = findVisibleProduct(id);
+        if (target) {
+          const visibleCard = target.closest('div') || target;
+          visibleCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          visibleCard.classList.add('sfps-page-target');
+          setTimeout(() => visibleCard.classList.remove('sfps-page-target'), 3200);
+          return;
+        }
+
+        const beforeTop = scroller.scrollTop;
+        stableRounds = beforeTop === previousTop ? stableRounds + 1 : 0;
+        previousTop = beforeTop;
+        if (stableRounds >= CONFIG.stableRoundsToFinish) break;
+
+        scroller.scrollTop = Math.min(
+          beforeTop + Math.max(180, scroller.clientHeight * 0.58),
+          scroller.scrollHeight,
+        );
+        scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+        await sleep(CONFIG.waitAfterScrollMs);
+      }
+
+      togglePanel(true);
+      setStatus('محصول در نسخهٔ فعلی لیست پیدا نشد؛ ممکن است موجودی تغییر کرده باشد.', 'warning');
+    } finally {
+      state.locating = false;
+    }
+  }
+
   function escapeHtml(value) {
     return value.replace(/[&<>'"]/g, (char) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -211,7 +268,7 @@
     }
 
     list.innerHTML = products.map((product) => `
-      <a class="sfps-card" href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">
+      <article class="sfps-card" data-product-id="${escapeHtml(product.id)}" role="button" tabindex="0" title="نمایش این محصول در لیست اصلی">
         <strong>${escapeHtml(product.title)}</strong>
         ${product.vendor ? `<span class="sfps-vendor">${escapeHtml(product.vendor)}</span>` : ''}
         <span class="sfps-meta">
@@ -219,7 +276,11 @@
           ${product.price ? `<span>${escapeHtml(product.price)} تومان</span>` : ''}
           ${product.rating ? `<span>★ ${escapeHtml(product.rating)}</span>` : ''}
         </span>
-      </a>`).join('');
+        <span class="sfps-card-footer">
+          <span class="sfps-delivery">پیک: ${product.delivery ? `${escapeHtml(product.delivery)}${product.delivery === 'رایگان' ? '' : ' تومان'}` : 'نامشخص'}</span>
+          <a class="sfps-open" href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">بازکردن محصول ↗</a>
+        </span>
+      </article>`).join('');
   }
 
   function togglePanel(force) {
@@ -267,6 +328,17 @@
       state.query = event.target.value;
       renderResults();
     });
+    document.querySelector('#sfps-results').addEventListener('click', (event) => {
+      if (event.target.closest('.sfps-open')) return;
+      const card = event.target.closest('.sfps-card');
+      if (card) scrollToProduct(card.dataset.productId);
+    });
+    document.querySelector('#sfps-results').addEventListener('keydown', (event) => {
+      if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('.sfps-card')) {
+        event.preventDefault();
+        scrollToProduct(event.target.dataset.productId);
+      }
+    });
     document.addEventListener('keydown', (event) => {
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'f') {
         event.preventDefault();
@@ -306,12 +378,17 @@
     #sfps-status[data-kind="warning"] { color: #a55a00; }
     #sfps-status[data-kind="error"] { color: #c42a2a; }
     #sfps-results { overflow-y: auto; padding: 4px 12px 14px; overscroll-behavior: contain; }
-    .sfps-card { display: grid; gap: 6px; margin: 8px 0; padding: 13px 14px; border: 1px solid #ececf0; border-radius: 13px; background: #fff; color: inherit; text-decoration: none; box-shadow: 0 2px 8px #0000000a; }
-    .sfps-card:hover { border-color: #ff00a666; transform: translateY(-1px); }
+    .sfps-card { display: grid; gap: 6px; margin: 8px 0; padding: 13px 14px; border: 1px solid #ececf0; border-radius: 13px; background: #fff; color: inherit; box-shadow: 0 2px 8px #0000000a; cursor: pointer; }
+    .sfps-card:hover, .sfps-card:focus { border-color: #ff00a666; transform: translateY(-1px); outline: none; }
     .sfps-card strong { font-size: 14px; line-height: 1.6; }
     .sfps-vendor { color: #666; font-size: 12px; }
     .sfps-meta { display: flex; gap: 11px; align-items: center; font-size: 12px; color: #555; }
     .sfps-meta b { color: #ff00a6; }
+    .sfps-card-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid #f0f0f2; font-size: 11px; }
+    .sfps-delivery { color: #555; }
+    .sfps-open { padding: 6px 9px; border-radius: 7px; background: #fff0fa; color: #d6008c; text-decoration: none; font-weight: 700; }
+    .sfps-page-target { outline: 4px solid #ff00a6 !important; outline-offset: 5px; border-radius: 12px; animation: sfps-pulse .7s ease 3; }
+    @keyframes sfps-pulse { 50% { outline-color: #ff00a633; } }
     .sfps-empty { text-align: center; color: #777; padding: 55px 15px; line-height: 2; }
     #sfps-panel footer { padding: 8px; text-align: center; color: #888; background: #fff; font-size: 11px; border-top: 1px solid #eee; }
     #sfps-panel kbd { border: 1px solid #ccc; background: #f5f5f5; border-radius: 4px; padding: 1px 4px; direction: ltr; display: inline-block; }
