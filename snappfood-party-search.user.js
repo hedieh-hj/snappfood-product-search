@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.8.5
+// @version      1.8.6
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -177,9 +177,15 @@
 
   function apiProduct(raw, order, party, originalHref, exactHrefs) {
     const variationId = String(raw.productVariationId || raw.id);
-    const delivery = raw.isDeliveryFeeHasDiscount
-      ? raw.deliveryFeeAfterDiscount
-      : raw.deliveryFee;
+    const originalDelivery = raw.deliveryFee ?? raw.delivery_fee;
+    const finalDelivery = raw.deliveryFeeAfterDiscount
+      ?? raw.delivery_fee_after_discount
+      ?? raw.discountedDeliveryFee;
+    // Prefer the final payable fee whenever the response provides it. Do not
+    // depend on isDeliveryFeeHasDiscount, which is not present consistently.
+    const delivery = finalDelivery !== undefined && finalDelivery !== null && finalDelivery !== ''
+      ? finalDelivery
+      : originalDelivery;
     const discountedPrice = raw.discountRatio
       ? Math.round(Number(raw.price) * (100 - Number(raw.discountRatio)) / 100)
       : Number(raw.price);
