@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.3.0
+// @version      1.4.0
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
@@ -89,9 +89,14 @@
     };
   }
 
+  function pageProductAnchors() {
+    return [...document.querySelectorAll(CONFIG.cardSelector)]
+      .filter((anchor) => !anchor.closest('#sfps-root'));
+  }
+
   function collectVisibleCards() {
     let added = 0;
-    document.querySelectorAll(CONFIG.cardSelector).forEach((anchor) => {
+    pageProductAnchors().forEach((anchor) => {
       const product = readCard(anchor);
       if (!state.products.has(product.id)) added += 1;
       state.products.set(product.id, product);
@@ -203,7 +208,7 @@
   }
 
   function findVisibleProduct(id) {
-    return [...document.querySelectorAll(CONFIG.cardSelector)]
+    return pageProductAnchors()
       .find((anchor) => productId(anchor.href) === id);
   }
 
@@ -262,11 +267,17 @@
     const list = document.querySelector('#sfps-results');
     if (!list) return;
     const needle = normalize(state.query);
-    const products = [...state.products.values()].filter((product) => !needle || product.searchable.includes(needle));
+    const products = needle
+      ? [...state.products.values()].filter((product) => product.searchable.includes(needle))
+      : [];
 
     document.querySelector('#sfps-found').textContent = `${fa.format(products.length)} نتیجه`;
+    if (!needle) {
+      list.innerHTML = '<div class="sfps-empty">نام غذا یا رستوران را در کادر بالا بنویسید.</div>';
+      return;
+    }
     if (!products.length) {
-      list.innerHTML = `<div class="sfps-empty">${state.products.size ? 'محصولی با این عبارت پیدا نشد.' : 'برای شروع، دکمهٔ «بارگذاری همه» را بزنید.'}</div>`;
+      list.innerHTML = `<div class="sfps-empty">${state.products.size ? 'محصولی با این عبارت پیدا نشد.' : 'ابتدا «بارگذاری همه» را بزنید.'}</div>`;
       return;
     }
 
@@ -401,7 +412,7 @@
   document.head.appendChild(style);
 
   function syncWithPage() {
-    const hasProducts = Boolean(document.querySelector(CONFIG.cardSelector));
+    const hasProducts = pageProductAnchors().length > 0;
     let root = document.querySelector('#sfps-root');
     const pageKey = `${location.pathname}${location.search}`;
 
