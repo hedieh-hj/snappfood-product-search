@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         جستجوی کامل محصولات اسنپ‌فود
 // @namespace    https://github.com/
-// @version      1.2.0
+// @version      1.3.0
 // @description  جمع‌آوری و جستجو میان تمام محصولات صفحات اسنپ‌فود، بدون محدودیت صفحه‌بندی
 // @author       Snappfood Party Search contributors
 // @license      MIT
-// @match        https://superapp.snappfood.ir/*
+// @match        https://snappfood.ir/*
+// @match        https://*.snappfood.ir/*
 // @icon         https://superapp.snappfood.ir/favicon.ico
 // @grant        none
 // @run-at       document-idle
@@ -17,7 +18,7 @@
   if (window.top !== window.self || document.getElementById('sfps-root')) return;
 
   const CONFIG = {
-    cardSelector: 'a[href*="/product-details/"]',
+    cardSelector: 'a[href*="/product-details/"], a[href*="/product/"]',
     scrollContainerSelector: '#main-container',
     stepRatio: 0.72,
     waitAfterScrollMs: 420,
@@ -46,7 +47,7 @@
   function productId(url) {
     try {
       const parsed = new URL(url, location.href);
-      const numericId = parsed.pathname.match(/\/product-details\/(?:[^/]+\/)?(\d+)/)?.[1];
+      const numericId = parsed.pathname.match(/\/(?:product-details|product)\/(?:[^/]+\/)?(\d+)/)?.[1];
       return numericId || `${parsed.pathname}${parsed.search}`;
     } catch {
       return url;
@@ -105,11 +106,13 @@
   }
 
   function getScrollContainer() {
-    return document.querySelector(CONFIG.scrollContainerSelector)
-      || [...document.querySelectorAll('main, section, div')].find((el) => {
+    const preferred = document.querySelector(CONFIG.scrollContainerSelector);
+    if (preferred && preferred.scrollHeight > preferred.clientHeight + 10) return preferred;
+
+    return [...document.querySelectorAll('main, section, div')].find((el) => {
         const style = getComputedStyle(el);
         return /(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 100;
-      });
+      }) || document.scrollingElement;
   }
 
   function setStatus(text, kind = '') {
